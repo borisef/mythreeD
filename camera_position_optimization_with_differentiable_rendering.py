@@ -60,8 +60,7 @@ from pytorch3d.renderer import (
 # In[ ]:
 
 
-# get_ipython().system('mkdir -p data')
-# get_ipython().system('wget -P data https://dl.fbaipublicfiles.com/pytorch3d/data/teapot/teapot.obj')
+
 
 
 # In[ ]:
