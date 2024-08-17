@@ -440,7 +440,7 @@ def aux_project_points(points, K, Rt):
     return points_proj
 
 
-def render_3d_model_on_image(obj_path, K, Rt, image_size, output_path, input_image = None):
+def render_3d_model_on_image(obj_path, K, Rt, image_size, output_path, input_image = None, rvec = None, tvec =None):
     # Load the 3D mesh model
     mesh = trimesh.load(obj_path)
 
@@ -452,7 +452,13 @@ def render_3d_model_on_image(obj_path, K, Rt, image_size, output_path, input_ima
     # vertices[1, :] = vertices[1, :]
 
     # Project vertices onto the image plane
-    vertices_proj = aux_project_points(vertices, K, Rt)
+    #vertices_proj = aux_project_points(vertices, K, Rt)
+
+    # Compute weighted reprojection error
+    vertices_proj, _ = cv2.projectPoints(vertices, rvec, tvec, K, distCoeffs=None)
+    vertices_proj = vertices_proj.reshape(-1, 2).T
+
+
 
     # Create image
     if(input_image is None):

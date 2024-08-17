@@ -192,17 +192,19 @@ class ImageKeypointsViewer:
         keypoints3D = theeD_info["keypoints"]
         projection3D = theeD_info["projection"]
 
-        #TODO: overlay the mesh above if needed
-        # if(self.data3D[self.index]["valid_projection"]):
-        #     projection_params = self.data3D[self.index]['projection_params']
-        #     temp_img_with_mesh = "/home/borisef/projects/pytorch3D/data/output/temp.png"
-        #     temp_vec = np.array([[0, 0, 0, 1]], dtype=np.float32)
-        #     temp = np.concatenate([projection_params['rmat'], projection_params['tvec']], axis=1)
-        #     Rt = np.concatenate([temp, temp_vec], axis=0)
-        #     K = projection_params['camera_matrix']
-        #     aux.render_3d_model_on_image(obj_path = self.data3D[self.index]['model_path'], K = K, Rt = Rt, image_size=None,
-        #                                  output_path= temp_img_with_mesh, input_image=image_path)
-        #     image_path = temp_img_with_mesh
+        #overlay the mesh above if needed
+        if(self.data3D[self.index]["valid_projection"] and self.show_mesh.get()):
+            projection_params = self.data3D[self.index]['projection_params']
+            temp_img_with_mesh = "/home/borisef/projects/pytorch3D/data/output/temp.png"
+            temp_vec = np.array([[0, 0, 0, 1]], dtype=np.float32)
+            temp = np.concatenate([projection_params['rmat'], projection_params['tvec']], axis=1)
+            Rt = np.concatenate([temp, temp_vec], axis=0)
+            K = projection_params['camera_matrix']
+            aux.render_3d_model_on_image(obj_path = self.data3D[self.index]['model_path'], K = K, Rt = Rt, image_size=None,
+                                         output_path= temp_img_with_mesh, input_image=image_path,
+                                         rvec = projection_params['rvec'],
+                                         tvec = projection_params['tvec'])
+            image_path = temp_img_with_mesh
 
         image = Image.open(image_path)
         image_path = orig_image_path
