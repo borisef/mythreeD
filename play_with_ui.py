@@ -3,31 +3,90 @@ from tkinter import Canvas, Checkbutton, BooleanVar, Button, Entry, Label, filed
 from PIL import Image, ImageTk
 import copy
 import pickle
+import aux
+
+import numpy as np
+
+#global params
+MAX_REPROJECTION_ERROR_3D_to_2D = 3
+MIN_POINTS_3D_to_2D = 4
+IFOVS_3D_to_2D = np.arange(start = 0.01, stop = 0.2,step = 0.005).tolist()
+COLOR_PER_POINT = [(255,0,0),
+                   (0,255,0),
+                   (0,0,255),
+                   (255,255,0),
+                   (255,0,255),
+                   (0,255,255),
+                   (255,128,0),
+                   (102, 255, 51)]*10
 
 # Example data
 data = [
     {
         "image_path": "/home/borisef/projects/pytorch3D/a10.png",
-        "keypoints": {"left_eye": (100, 150), "right_eye": (200, 150), "nose": (150, 200)}
+        "keypoints": {"nose_tip": (100, 150), "left_wing": (200, 150), "right_wing": (150, 200), 'cone_edge': (110,100),
+                      "tip_of_vertical_stabilizer":(50,50), "left_tip_of_horizontal_stabilizer": (100,25),
+                      "right_tip_of_horizontal_stabilizer": (100,250)}
     },
     {
         "image_path": "/home/borisef/projects/pytorch3D/a100.png",
-        "keypoints": {"left_eye": (110, 160), "right_eye": (210, 160), "nose": (160, 210)}
+        "keypoints": {"nose_tip": (120, 150), "left_wing": (210, 150), "right_wing": (160, 200), 'cone_edge': (110,100),
+                      "tip_of_vertical_stabilizer":(50,60), "left_tip_of_horizontal_stabilizer": (110,25),
+                      "right_tip_of_horizontal_stabilizer": (100,250)}
     }
     # Add more dictionaries as needed
 ]
 
+
+data3D = [
+    {
+        "model_path": "/home/borisef/projects/pytorch3D/data/bixler/bixler.obj",
+        "keypoints": {"nose_tip": (0, 8.29, 0.24), "left_wing": (-13, 0.6, 2.27), "right_wing": (13, 0.6, 2.27),
+                      'cone_edge': (0,-7.5,0),
+                      "tip_of_vertical_stabilizer": (0,-7.28,2.8),
+                      "left_tip_of_horizontal_stabilizer": (-4.15,-7.5,0),
+                      "right_tip_of_horizontal_stabilizer": (4.15,-7.5,0)},
+        "projection": {"nose_tip": (100,100), "left_wing": (200,200), "right_wing": (300,300), 'cone_edge': (110,100),
+                      "tip_of_vertical_stabilizer":(50,50), "left_tip_of_horizontal_stabilizer": (100,25),
+                      "right_tip_of_horizontal_stabilizer": (100,250)},
+        'valid_projection': False,
+        'projection_params': None
+
+
+    },
+    {
+        "model_path": "/home/borisef/projects/pytorch3D/data/bixler/bixler.obj",
+        "keypoints": {"nose_tip": (0, 8.29, 0.24), "left_wing": (-13, 0.6, 2.27), "right_wing": (13, 0.6, 2.27),
+                      'cone_edge': (0,-7.5,0),
+                      "tip_of_vertical_stabilizer": (0,-7.28,2.8),
+                      "left_tip_of_horizontal_stabilizer": (-4.15,-7.5,0),
+                      "right_tip_of_horizontal_stabilizer": (4.15,-7.5,0)},
+        "projection": {"nose_tip": (100,100), "left_wing": (200,200), "right_wing": (300,300), 'cone_edge': (110,100),
+                      "tip_of_vertical_stabilizer":(50,50), "left_tip_of_horizontal_stabilizer": (100,25),
+                      "right_tip_of_horizontal_stabilizer": (100,250)},
+        'valid_projection': False,
+        'projection_params': None
+    },
+    # Add more dictionaries as needed
+]
+
+
+def rgb_to_hex(rgb):
+    return '#{:02x}{:02x}{:02x}'.format(rgb[0],rgb[1],rgb[2])
+
 # Projection data
-projectionData = {'fov_x': 0, 'fov_y': 0, 'yaw': 0, 'pitch': 0, 'roll': 0, 't_x': 0, 't_y': 0, 't_z': 0}
+projectionData = {'fov_xy': (-1,-1), 'ypr': (0,0,0), 't_xyz': (None,None,None), 'num_points': None, 'max_error': None }
 
 class ImageKeypointsViewer:
-    def __init__(self, root, data, projectionData):
+    def __init__(self, root, data, data3D, projectionData):
         self.root = root
         self.data = data
+        self.data3D = data3D
         self.projectionData = projectionData
         self.index = 0
         self.zoom_scale = 1.0
         self.show_labels = BooleanVar(value=True)
+        self.show_mesh = BooleanVar(value=False)
         self.selected_keypoint = None
         self.original_data = [copy.deepcopy(entry) for entry in data]  # Make a deep copy of original data
 
@@ -87,6 +146,7 @@ class ImageKeypointsViewer:
 
         # Add projection data input fields
         self.projection_vars = {}
+        self.projection_entries = {}
         Label(self.control_frame1, text="Projection Data").pack(pady=5)
         for key in self.projectionData:
             frame = tk.Frame(self.control_frame1)
@@ -96,12 +156,16 @@ class ImageKeypointsViewer:
             var = tk.StringVar()
             var.set(str(self.projectionData[key]))
             var.trace('w', lambda name, index, mode, key=key, var=var: self.update_projection_data(key, var))
-            entry = Entry(frame, width=10, textvariable=var)
+            entry = Entry(frame, width=15, textvariable=var)
             entry.pack(side=tk.LEFT)
             self.projection_vars[key] = var
+            self.projection_entries[key] = entry
 
         self.label_checkbox = Checkbutton(root, text="Show Labels", variable=self.show_labels, command=self.show_image)
         self.label_checkbox.place(relx=1.0, x=-10, y=10, anchor='ne')  # Place checkbox at top right
+
+        self.mesh_checkbox = Checkbutton(root, text="Show Mesh", variable=self.show_mesh, command=self.show_image)
+        self.mesh_checkbox.place(relx=1.0, x=-17, y=50, anchor='ne')  # Place checkbox at top right under previous
 
         # Bind keys for zooming
         self.root.bind("<KeyPress-A>", self.zoom_in)  # Capital 'A'
@@ -120,10 +184,28 @@ class ImageKeypointsViewer:
         # Load the image
         image_info = self.data[self.index]
         image_path = image_info["image_path"]
+        orig_image_path = image_path
         keypoints = image_info["keypoints"]
 
-        image = Image.open(image_path)
+        #Load 3D data
+        theeD_info = self.data3D[self.index]
+        keypoints3D = theeD_info["keypoints"]
+        projection3D = theeD_info["projection"]
 
+        #TODO: overlay the mesh above if needed
+        # if(self.data3D[self.index]["valid_projection"]):
+        #     projection_params = self.data3D[self.index]['projection_params']
+        #     temp_img_with_mesh = "/home/borisef/projects/pytorch3D/data/output/temp.png"
+        #     temp_vec = np.array([[0, 0, 0, 1]], dtype=np.float32)
+        #     temp = np.concatenate([projection_params['rmat'], projection_params['tvec']], axis=1)
+        #     Rt = np.concatenate([temp, temp_vec], axis=0)
+        #     K = projection_params['camera_matrix']
+        #     aux.render_3d_model_on_image(obj_path = self.data3D[self.index]['model_path'], K = K, Rt = Rt, image_size=None,
+        #                                  output_path= temp_img_with_mesh, input_image=image_path)
+        #     image_path = temp_img_with_mesh
+
+        image = Image.open(image_path)
+        image_path = orig_image_path
         # Apply zoom
         width, height = image.size
         new_size = (int(width * self.zoom_scale), int(height * self.zoom_scale))
@@ -139,14 +221,115 @@ class ImageKeypointsViewer:
 
         # Draw keypoints
         self.keypoint_items = {}
+        ind = 0
         for name, point in keypoints.items():
             x, y = point
             x = int(x * self.zoom_scale)
             y = int(y * self.zoom_scale) + 20  # Adjust for text offset
-            keypoint_item = self.canvas.create_oval(x-5, y-5, x+5, y+5, fill="red", tags=name)
+            keypoint_item = self.canvas.create_oval(x-5, y-5, x+5, y+5, fill=rgb_to_hex(COLOR_PER_POINT[ind]), tags=name)
             if self.show_labels.get():
                 self.canvas.create_text(x, y-10, text=name, fill="black")
             self.keypoint_items[name] = keypoint_item
+            ind = ind+1
+
+        if(self.data3D[self.index]["valid_projection"]):
+            ind = 0
+            for name, point in projection3D.items():
+                x, y = point
+                x = int(x * self.zoom_scale)
+                y = int(y * self.zoom_scale) + 20  # Adjust for text offset
+                #keypoint_3D_item = self.canvas.create_oval(x-5, y-5, x+5, y+5, fill="green", tags=name)
+                self.canvas.create_rectangle((x-3,y-3,x+3,y+3), fill=rgb_to_hex(COLOR_PER_POINT[ind]),outline="black")
+                # if self.show_labels.get():
+                #     self.canvas.create_text(x, y-10, text=name, fill="black")
+                #self.keypoint_items[name] = keypoint_item
+                ind = ind + 1
+
+    def update_proj_params(self, proj_params=None):
+        entry= self.projection_entries['num_points']
+        if(entry.get() is not None):
+            entry.delete(0, tk.END)
+        if(proj_params is not None):
+            entry.insert(0,str(len(proj_params['selected_points'])))
+        entry = self.projection_entries['max_error']
+        if (entry.get() is not None):
+            entry.delete(0, tk.END)
+        if (proj_params is not None):
+            entry.insert(0, str(proj_params['max_reprojection_error']))
+        entry = self.projection_entries['t_xyz']
+        if (entry.get() is not None):
+            entry.delete(0, tk.END)
+        if (proj_params is not None):
+            entry.insert(0, str(proj_params['tvec'].flatten()))
+
+
+
+    def compute_3D_projection(self):
+
+        # Load the image
+        image_info = self.data[self.index]
+        image_path = image_info["image_path"]
+        keypoints = image_info["keypoints"]
+
+
+        image = Image.open(image_path)
+
+        # Apply zoom
+        W, H = image.size
+
+        # Load 3D data
+        theeD_info = self.data3D[self.index]
+        keypoints3D = theeD_info["keypoints"]
+        projection3D = theeD_info["projection"]
+
+
+        # Intrinsic matrix K
+        K = np.array([
+            [1000, 0, 512],
+            [0, 1000, 384],
+            [0, 0, 1]
+        ], dtype=np.float32) #TEMP
+
+        #if no need to re-compute return
+        if(theeD_info['valid_projection']):
+            return
+
+        #get 2D and 3D points
+        NP = len(keypoints)
+        object_points = np.zeros((NP,3), dtype=np.float32)
+        image_points = np.zeros((NP,2), dtype=np.float32)
+        for i,xy_xyz in enumerate(zip(keypoints.values(),keypoints3D.values())):
+            object_points[i,:] = xy_xyz[1]
+            image_points[i,:]=xy_xyz[0]
+
+        #compute projection with PnP
+        camera_matrix = K
+        rmat, tvec, success, weighted_reprojection_error, avg_reprojection_error, max_reprojection_error, projected_points, rvec = \
+        aux.recover_camera_extrinsics_simple(object_points, image_points, camera_matrix)
+
+
+        out = aux.run_multiple_recover_extrinsics(object_points,image_points,MAX_REPROJECTION_ERROR_3D_to_2D,
+                                                  MIN_POINTS_3D_to_2D, IFOVS_3D_to_2D,W,H)
+
+        max_reprojection_error = out['max_reprojection_error']
+        avg_reprojection_error = out['avg_reprojection_error']
+        projected_points = out['all_projected_points'].copy()
+
+        print('avg_reprojection_error' + str(avg_reprojection_error))
+        print('max_reprojection_error' + str(max_reprojection_error))
+        #TODO: compute error etc
+        if(success):
+            for i, name in enumerate(projection3D.keys()):
+                projection3D[name] = projected_points[i,:]
+
+            theeD_info['projection_params'] = out
+            #self.data3D[self.index]['projection_params'] = out
+            self.update_proj_params(out)
+
+
+
+
+
 
     def show_prev_image(self):
         self.index = (self.index - 1) % len(self.data)
@@ -200,6 +383,9 @@ class ImageKeypointsViewer:
             y_data = (y_new - 20) / self.zoom_scale
             self.data[self.index]["keypoints"][self.selected_keypoint] = (x_data, y_data)
 
+            self.data3D[self.index]["valid_projection"] = False
+            self.update_proj_params()
+
             self.show_image()  # Update display
 
     def save_changes(self):
@@ -213,7 +399,7 @@ class ImageKeypointsViewer:
         save_path = filedialog.asksaveasfilename(defaultextension=".pkl", filetypes=[("Pickle files", "*.pkl")])
         if save_path:
             with open(save_path, 'wb') as f:
-                pickle.dump(self.data, f)
+                pickle.dump({'data': self.data, 'data3D': self.data3D}, f)
 
     def update_projection_data(self, key, var):
         try:
@@ -225,6 +411,9 @@ class ImageKeypointsViewer:
     def overlay_3d(self):
         print("Overlay 3D button pressed")
         # Placeholder for actual 3D overlay functionality
+        self.compute_3D_projection()
+        self.data3D[self.index]["valid_projection"] = True
+        self.show_image()
 
     def update_mode(self):
         print(f"Mode changed to: {self.mode_var.get()}")
@@ -232,5 +421,5 @@ class ImageKeypointsViewer:
 
 if __name__ == "__main__":
     root = tk.Tk()
-    viewer = ImageKeypointsViewer(root, data, projectionData)
+    viewer = ImageKeypointsViewer(root, data, data3D, projectionData)
     root.mainloop()

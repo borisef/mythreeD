@@ -62,8 +62,8 @@ if __name__ == "__main__":
     image_size = (768, 1024)
 
     # Path to the 3D model (obj_path)
-    obj_path = "/home/borisef/projects/pytorch3D/data/teapot/teapot.obj"
-    obj_path = "/home/borisef/projects/pytorch3D/data/bixler/bixler.obj"
+   #obj_path = "/home/borisef/projects/pytorch3D/data/teapot/teapot.obj"
+   # obj_path = "/home/borisef/projects/pytorch3D/data/bixler/bixler.obj"
     obj_path = "/home/borisef/projects/pytorch3D/data/cow_mesh/cow.obj"
 
     # Output path for the PNG image

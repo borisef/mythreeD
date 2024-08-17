@@ -5,14 +5,18 @@ import cv2
 import numpy as np
 from scipy.optimize import least_squares
 import open3d as o3d
-from PIL import Image
 
-# from OpenGL.GL import *
-# from OpenGL.GLUT import *
-# from OpenGL.GLU import *
 from pyrr import Matrix44, Vector3
 import pywavefront
 import sys
+
+
+from PIL import Image, ImageDraw
+import trimesh
+
+
+
+import itertools
 
 
 # Function to set up the viewport and perspective
@@ -188,6 +192,136 @@ def recover_camera_extrinsics_use_weights(object_points, image_points, camera_ma
     return rmat, tvec, res.success, weighted_reprojection_error
 
 
+def calculate_camera_matrix(W, H, FOV_x_deg, FOV_y_deg):
+    # Convert FOV from degrees to radians
+    FOV_x_rad = np.radians(FOV_x_deg)
+    FOV_y_rad = np.radians(FOV_y_deg)
+
+    # Calculate focal lengths
+    f_x = W / (2 * np.tan(FOV_x_rad / 2))
+    f_y = H / (2 * np.tan(FOV_y_rad / 2))
+
+    # Principal points (assumed to be at the center of the image)
+    c_x = W / 2
+    c_y = H / 2
+
+    # Construct the camera matrix
+    K = np.array([
+        [f_x, 0, c_x],
+        [0, f_y, c_y],
+        [0, 0, 1]
+    ])
+
+    return K
+
+def compute_camera_matrix(W, H, iFOV_deg):
+    FOV_x_deg = iFOV_deg * W
+    FOV_y_deg = iFOV_deg * H
+    K = calculate_camera_matrix(W, H, FOV_x_deg, FOV_y_deg)
+    return K
+
+
+def generate_subsets(arr, k):
+    return list(itertools.combinations(arr, k))
+def run_multiple_recover_extrinsics(object_points, image_points,max_reprojection_error, min_points, iFOVs, W,H):#TODO
+    dist_coeffs = None
+    NP = object_points.shape[0]
+    all_points = np.arange(0,NP).tolist()
+    num_points = NP
+    success_flag = False
+    best_results = {}
+    best_max_reprojection_error = np.Inf
+    while num_points>=min_points and success_flag == False:
+        all_subsets= generate_subsets(all_points,num_points)
+        for selected_points in all_subsets:
+            if success_flag:
+                break
+            temp_object_points = object_points[selected_points,:]
+            temp_image_points = image_points[selected_points, :]
+            for ifov in iFOVs:
+                if success_flag:
+                    break
+                camera_matrix = compute_camera_matrix(W, H, ifov)
+                out = recover_camera_extrinsics_simple(temp_object_points, temp_image_points, camera_matrix)
+                #rmat, tvec, success, weighted_reprojection_error,avg_reprojection_error,max_reprojection_error, projected_points
+                temp_max_reprojection_error = out[5]
+                if(temp_max_reprojection_error < best_max_reprojection_error):
+                    # keep best results
+                    best_results['rmat'] = out[0]
+                    best_results['tvec'] = out[1]
+                    best_results['success'] = out[2]
+                    best_results['weighted_reprojection_error'] = out[3]
+                    best_results['avg_reprojection_error'] = out[4]
+                    best_results['max_reprojection_error'] = out[5]
+                    best_results['projected_points'] = out[6]
+                    best_results['rvec'] = out[7]
+
+                    all_projected_points, _ = cv2.projectPoints(object_points, best_results['rvec'], best_results['tvec'], camera_matrix, dist_coeffs)
+                    all_projected_points = all_projected_points.reshape(-1, 2)
+                    best_results['all_projected_points'] = all_projected_points
+                    best_results['selected_points'] = selected_points
+                    best_results['ifov'] = ifov
+                    best_results['camera_matrix'] = camera_matrix
+                    best_max_reprojection_error = temp_max_reprojection_error
+                    print('best_max_reprojection_error' + str(best_max_reprojection_error))
+
+                if(temp_max_reprojection_error <= max_reprojection_error):
+                    success_flag = True
+
+
+
+        num_points = num_points -1 #while loop
+
+    return best_results
+
+def recover_camera_extrinsics_simple(object_points, image_points, camera_matrix, dist_coeffs=None, weights=None):
+    if dist_coeffs is None:
+        dist_coeffs = np.zeros((4,1))  # Assuming no lens distortion
+        # Check weights
+    if weights is None:
+        weights = np.ones((object_points.shape[0], 1), dtype=np.float32)
+    else:
+        weights = weights.reshape(-1, 1)
+
+    # Use OpenCV's solvePnP to find the extrinsics
+    # cv2.SOLVEPNP_ITERATIVE - need 6 or more points ?
+    my_flag = cv2.SOLVEPNP_ITERATIVE
+    if(object_points.shape[0]<6):
+        my_flag = cv2.SOLVEPNP_SQPNP
+    success, rvec, tvec = cv2.solvePnP(object_points, image_points, camera_matrix, dist_coeffs, flags = my_flag)
+
+    if success:
+        # Convert rotation vector to rotation matrix
+        rmat, _ = cv2.Rodrigues(rvec)
+
+        # Compute weighted reprojection error
+        projected_points, _ = cv2.projectPoints(object_points, rvec, tvec, camera_matrix, dist_coeffs)
+        projected_points = projected_points.reshape(-1, 2)
+
+        # Calculate reprojection error per point
+        reprojection_error = np.sqrt(np.sum((projected_points - image_points) ** 2, axis=1))
+
+        # Weighted reprojection error
+        weighted_reprojection_error = np.sqrt(np.sum((weights * reprojection_error.reshape(-1, 1)) ** 2) / np.sum(weights))
+
+        # average
+        avg_reprojection_error = reprojection_error.mean()
+        max_reprojection_error = reprojection_error.max()
+
+    else:
+        avg_reprojection_error = weighted_reprojection_error = max_reprojection_error = 1000
+        projected_points = None
+        rmat = None
+
+    return rmat, tvec, success, weighted_reprojection_error,avg_reprojection_error,max_reprojection_error, projected_points, rvec
+
+
+
+
+
+
+
+
 def recover_camera_extrinsics2(object_points, image_points, camera_matrix, dist_coeffs=None, weights=None):
     """
     Recovers the camera extrinsic parameters (rotation matrix and translation vector)
@@ -293,6 +427,48 @@ def recover_camera_extrinsics(object_points, image_points, camera_matrix, dist_c
 
     return (rmat,tvec, success,reproj_error)
 
+def aux_project_points(points, K, Rt):
+    # Apply extrinsic parameters (Rt) to points
+    points = np.dot(Rt[:3, :3], points) + Rt[:3, 3].reshape(3, 1)
+
+    # Apply intrinsic parameters (K) to project points onto image plane
+    points_proj = np.dot(K, points)
+
+    # Normalize projected points
+    points_proj = points_proj[:2, :] / points_proj[2, :]
+
+    return points_proj
+
+
+def render_3d_model_on_image(obj_path, K, Rt, image_size, output_path, input_image = None):
+    # Load the 3D mesh model
+    mesh = trimesh.load(obj_path)
+
+    # Get vertices of the mesh
+    vertices = np.array(mesh.vertices.T)  # Transpose to have shape (3, num_vertices)
+
+    #TRY
+    # vertices = vertices[(0, 2, 1), :]
+    # vertices[1, :] = vertices[1, :]
+
+    # Project vertices onto the image plane
+    vertices_proj = aux_project_points(vertices, K, Rt)
+
+    # Create image
+    if(input_image is None):
+        image = Image.new('RGB', (image_size[1], image_size[0]), color='white')
+    else:
+        image = Image.open(input_image)
+
+    draw = ImageDraw.Draw(image)
+
+    # Draw the mesh onto the image
+    for face in mesh.faces:
+        points = [tuple(vertices_proj[:, vertex]) for vertex in face]
+        draw.polygon(points, outline='black', fill='white')
+
+    # Save the image
+    image.save(output_path)
 
 
 if __name__ == "__main__":
@@ -346,31 +522,3 @@ if __name__ == "__main__":
         print("PnP Success:", success)
         print("Weighted Reprojection Error:", weighted_reprojection_error)
 
-    if(0):
-        # Intrinsic matrix K
-        K = np.array([
-            [1000, 0, 512],
-            [0, 1000, 384],
-            [0, 0, 1]
-        ])
-
-        # Extrinsic matrix Rt
-        Rt = np.array([
-            [1, 0, 0, 0],
-            [0, 1, 0, 0],
-            [0, 0, 1, -10],
-            [0, 0, 0, 1]
-        ])
-
-        # Image size (height, width)
-        image_size = (768, 1024)
-
-        # Path to the 3D model
-        obj_path = "/home/borisef/projects/pytorch3D/data/cow_mesh/cow.obj"
-        #obj_path = "/home/borisef/projects/pytorch3D/data/bixler/bixler.obj"
-
-        # Output path for the PNG image
-        output_path = "image2.png"
-
-        #render_3d_model_to_image(K, Rt, obj_path, image_size, output_path)
-        render_model(obj_path, Rt, K, 1024, 768, output_path)
