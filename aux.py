@@ -74,6 +74,31 @@ import itertools
 #     glutDestroyWindow(window)
 
 
+def yaw_pitch_roll_from_rmat(rotation_matrix):
+
+    # Step 2: Extract yaw, pitch, and roll from the rotation matrix
+    # Note: OpenCV's coordinate system (x: right, y: down, z: forward)
+    sy = np.sqrt(rotation_matrix[0, 0] ** 2 + rotation_matrix[1, 0] ** 2)
+
+    # Check for gimbal lock
+    singular = sy < 1e-6
+
+    if not singular:
+        yaw = np.arctan2(rotation_matrix[2, 1], rotation_matrix[2, 2])
+        pitch = np.arctan2(-rotation_matrix[2, 0], sy)
+        roll = np.arctan2(rotation_matrix[1, 0], rotation_matrix[0, 0])
+    else:
+        yaw = np.arctan2(-rotation_matrix[1, 2], rotation_matrix[1, 1])
+        pitch = np.arctan2(-rotation_matrix[2, 0], sy)
+        roll = 0
+
+    # Step 3: Convert from radians to degrees
+    yaw = np.degrees(yaw)
+    pitch = np.degrees(pitch)
+    roll = np.degrees(roll)
+
+    return(yaw, pitch, roll)
+
 def render_3d_model_to_image(K, Rt, obj_path, image_size, output_path):
     # Load the 3D mesh
     mesh = o3d.io.read_triangle_mesh(obj_path)
@@ -261,12 +286,16 @@ def run_multiple_recover_extrinsics(object_points, image_points,max_reprojection
                     best_results['all_projected_points'] = all_projected_points
                     best_results['selected_points'] = selected_points
                     best_results['ifov'] = ifov
+                    best_results['fov_xy_deg'] = (ifov*W,ifov*H)
                     best_results['camera_matrix'] = camera_matrix
+                    best_results['ypr_deg'] = yaw_pitch_roll_from_rmat(best_results['rmat'])
+
+
                     best_max_reprojection_error = temp_max_reprojection_error
                     print('best_max_reprojection_error' + str(best_max_reprojection_error))
 
-                if(temp_max_reprojection_error <= max_reprojection_error):
-                    success_flag = True
+                    if(best_max_reprojection_error <= max_reprojection_error):
+                        success_flag = True
 
 
 
@@ -445,11 +474,11 @@ def render_3d_model_on_image(obj_path, K, Rt, image_size, output_path, input_ima
     mesh = trimesh.load(obj_path)
 
     # Get vertices of the mesh
-    vertices = np.array(mesh.vertices.T)  # Transpose to have shape (3, num_vertices)
+    vertices = np.array(mesh.vertices.T, dtype = np.float32)  # Transpose to have shape (3, num_vertices)
 
-    #TRY
-    # vertices = vertices[(0, 2, 1), :]
-    # vertices[1, :] = vertices[1, :]
+    #vertices in OBJ file are (X, -Z, Y) why ???
+    vertices = vertices[(0, 2, 1), :]
+    vertices[1, :] = -vertices[1, :]
 
     # Project vertices onto the image plane
     #vertices_proj = aux_project_points(vertices, K, Rt)
@@ -457,6 +486,7 @@ def render_3d_model_on_image(obj_path, K, Rt, image_size, output_path, input_ima
     # Compute weighted reprojection error
     vertices_proj, _ = cv2.projectPoints(vertices, rvec, tvec, K, distCoeffs=None)
     vertices_proj = vertices_proj.reshape(-1, 2).T
+
 
 
 
@@ -468,10 +498,12 @@ def render_3d_model_on_image(obj_path, K, Rt, image_size, output_path, input_ima
 
     draw = ImageDraw.Draw(image)
 
+    NF = len(mesh.faces)
+    jump = int(max((NF/25000),1))
     # Draw the mesh onto the image
-    for face in mesh.faces:
+    for face in mesh.faces[::jump]:
         points = [tuple(vertices_proj[:, vertex]) for vertex in face]
-        draw.polygon(points, outline='black', fill='white')
+        draw.polygon(points, outline='orange', fill='white')
 
     # Save the image
     image.save(output_path)

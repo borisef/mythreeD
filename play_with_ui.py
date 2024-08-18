@@ -29,7 +29,7 @@ data = [
                       "right_tip_of_horizontal_stabilizer": (100,250)}
     },
     {
-        "image_path": "/home/borisef/projects/pytorch3D/a100.png",
+        "image_path": "/home/borisef/projects/pytorch3D/a101.png",
         "keypoints": {"nose_tip": (120, 150), "left_wing": (210, 150), "right_wing": (160, 200), 'cone_edge': (110,100),
                       "tip_of_vertical_stabilizer":(50,60), "left_tip_of_horizontal_stabilizer": (110,25),
                       "right_tip_of_horizontal_stabilizer": (100,250)}
@@ -41,11 +41,11 @@ data = [
 data3D = [
     {
         "model_path": "/home/borisef/projects/pytorch3D/data/bixler/bixler.obj",
-        "keypoints": {"nose_tip": (0, 8.29, 0.24), "left_wing": (-13, 0.6, 2.27), "right_wing": (13, 0.6, 2.27),
-                      'cone_edge': (0,-7.5,0),
-                      "tip_of_vertical_stabilizer": (0,-7.28,2.8),
-                      "left_tip_of_horizontal_stabilizer": (-4.15,-7.5,0),
-                      "right_tip_of_horizontal_stabilizer": (4.15,-7.5,0)},
+        "keypoints": {"nose_tip": (0, 16.25, 0.25), "left_wing": (-26, 1.22, 4.55), "right_wing": (26, 1.22, 4.55),
+                      'cone_edge': (0,-15,0),
+                      "tip_of_vertical_stabilizer": (0,-14.4,5.7),
+                      "left_tip_of_horizontal_stabilizer": (-8.13,-15.21,0),
+                      "right_tip_of_horizontal_stabilizer": (8.13,-15.21,0)},
         "projection": {"nose_tip": (100,100), "left_wing": (200,200), "right_wing": (300,300), 'cone_edge': (110,100),
                       "tip_of_vertical_stabilizer":(50,50), "left_tip_of_horizontal_stabilizer": (100,25),
                       "right_tip_of_horizontal_stabilizer": (100,250)},
@@ -56,11 +56,11 @@ data3D = [
     },
     {
         "model_path": "/home/borisef/projects/pytorch3D/data/bixler/bixler.obj",
-        "keypoints": {"nose_tip": (0, 8.29, 0.24), "left_wing": (-13, 0.6, 2.27), "right_wing": (13, 0.6, 2.27),
-                      'cone_edge': (0,-7.5,0),
-                      "tip_of_vertical_stabilizer": (0,-7.28,2.8),
-                      "left_tip_of_horizontal_stabilizer": (-4.15,-7.5,0),
-                      "right_tip_of_horizontal_stabilizer": (4.15,-7.5,0)},
+        "keypoints": {"nose_tip": (0, 16.25, 0.25), "left_wing": (-26, 1.22, 4.55), "right_wing": (26, 1.22, 4.55),
+                      'cone_edge': (0,-15,0),
+                      "tip_of_vertical_stabilizer": (0,-14.4,5.7),
+                      "left_tip_of_horizontal_stabilizer": (-8.13,-15.21,0),
+                      "right_tip_of_horizontal_stabilizer": (8.13,-15.21,0)},
         "projection": {"nose_tip": (100,100), "left_wing": (200,200), "right_wing": (300,300), 'cone_edge': (110,100),
                       "tip_of_vertical_stabilizer":(50,50), "left_tip_of_horizontal_stabilizer": (100,25),
                       "right_tip_of_horizontal_stabilizer": (100,250)},
@@ -109,14 +109,14 @@ class ImageKeypointsViewer:
         self.control_frame1.pack(side=tk.LEFT, padx=10, pady=10)
 
         # Add radio buttons for 2D/3D mode
-        self.mode_var = StringVar(value="2D")
-        self.mode_frame = tk.Frame(self.control_frame)
-        self.mode_frame.pack(pady=10)
-        Label(self.mode_frame, text="Mode").pack(side=tk.TOP)
-        self.mode_2d_radio = Radiobutton(self.mode_frame, text="2D mode", variable=self.mode_var, value="2D", command=self.update_mode)
-        self.mode_2d_radio.pack(side=tk.LEFT, padx=5)
-        self.mode_3d_radio = Radiobutton(self.mode_frame, text="3D mode", variable=self.mode_var, value="3D", command=self.update_mode)
-        self.mode_3d_radio.pack(side=tk.LEFT, padx=5)
+        #self.mode_var = StringVar(value="2D")
+        #self.mode_frame = tk.Frame(self.control_frame)
+        #self.mode_frame.pack(pady=10)
+        #Label(self.mode_frame, text="Mode").pack(side=tk.TOP)
+        #self.mode_2d_radio = Radiobutton(self.mode_frame, text="2D mode", variable=self.mode_var, value="2D", command=self.update_mode)
+        #self.mode_2d_radio.pack(side=tk.LEFT, padx=5)
+        #self.mode_3d_radio = Radiobutton(self.mode_frame, text="3D mode", variable=self.mode_var, value="3D", command=self.update_mode)
+        #self.mode_3d_radio.pack(side=tk.LEFT, padx=5)
 
         self.save_button = Button(root, text="Save Changes", command=self.save_changes)
         self.save_button.pack(pady=5)
@@ -139,10 +139,10 @@ class ImageKeypointsViewer:
         self.overlay_3d_button.place(relx=1.0, rely=1.0, x=-10, y=-140, anchor='se')  # Place button at bottom right
 
         # Add dropdown menu for Edit 3D transform
-        self.transform_var = StringVar(value="None")
-        Label(self.control_frame, text="Edit 3D Transform").pack(pady=5)
-        self.transform_dropdown = OptionMenu(self.control_frame, self.transform_var, "None", "XYZ", "yaw", "pitch", "roll")
-        self.transform_dropdown.pack()
+        # self.transform_var = StringVar(value="None")
+        # Label(self.control_frame, text="Edit 3D Transform").pack(pady=5)
+        # self.transform_dropdown = OptionMenu(self.control_frame, self.transform_var, "None", "XYZ", "yaw", "pitch", "roll")
+        # self.transform_dropdown.pack()
 
         # Add projection data input fields
         self.projection_vars = {}
@@ -164,8 +164,11 @@ class ImageKeypointsViewer:
         self.label_checkbox = Checkbutton(root, text="Show Labels", variable=self.show_labels, command=self.show_image)
         self.label_checkbox.place(relx=1.0, x=-10, y=10, anchor='ne')  # Place checkbox at top right
 
-        self.mesh_checkbox = Checkbutton(root, text="Show Mesh", variable=self.show_mesh, command=self.show_image)
-        self.mesh_checkbox.place(relx=1.0, x=-17, y=50, anchor='ne')  # Place checkbox at top right under previous
+        # self.mesh_checkbox = Checkbutton(root, text="Show Mesh", variable=self.show_mesh, command=self.show_image)
+        # self.mesh_checkbox.place(relx=1.0, x=-17, y=50, anchor='ne')  # Place checkbox at top right under previous
+
+        self.mesh_button = tk.Button(root, text="Show Mesh", command=self.set_show_mesh)
+        self.mesh_button.place(relx=1.0, x=-17, y=50, anchor='ne')
 
         # Bind keys for zooming
         self.root.bind("<KeyPress-A>", self.zoom_in)  # Capital 'A'
@@ -176,6 +179,11 @@ class ImageKeypointsViewer:
         self.canvas.bind("<B1-Motion>", self.move_keypoint)   # Left mouse button drag
 
         self.show_image()
+
+    def set_show_mesh(self):
+        self.show_mesh.set(True)
+        self.show_image()
+        self.show_mesh.set(False)
 
     def show_image(self):
         # Clear canvas
@@ -205,6 +213,7 @@ class ImageKeypointsViewer:
                                          rvec = projection_params['rvec'],
                                          tvec = projection_params['tvec'])
             image_path = temp_img_with_mesh
+
 
         image = Image.open(image_path)
         image_path = orig_image_path
@@ -263,8 +272,16 @@ class ImageKeypointsViewer:
             entry.delete(0, tk.END)
         if (proj_params is not None):
             entry.insert(0, str(proj_params['tvec'].flatten()))
-
-
+        entry = self.projection_entries['fov_xy']
+        if (entry.get() is not None):
+            entry.delete(0, tk.END)
+        if (proj_params is not None):
+            entry.insert(0, str(proj_params['fov_xy_deg']))
+        entry = self.projection_entries['ypr']
+        if (entry.get() is not None):
+            entry.delete(0, tk.END)
+        if (proj_params is not None):
+            entry.insert(0, str(proj_params['ypr_deg']))
 
     def compute_3D_projection(self):
 
@@ -286,11 +303,11 @@ class ImageKeypointsViewer:
 
 
         # Intrinsic matrix K
-        K = np.array([
-            [1000, 0, 512],
-            [0, 1000, 384],
-            [0, 0, 1]
-        ], dtype=np.float32) #TEMP
+        # K = np.array([
+        #     [1000, 0, 512],
+        #     [0, 1000, 384],
+        #     [0, 0, 1]
+        # ], dtype=np.float32) #TEMP
 
         #if no need to re-compute return
         if(theeD_info['valid_projection']):
@@ -305,9 +322,9 @@ class ImageKeypointsViewer:
             image_points[i,:]=xy_xyz[0]
 
         #compute projection with PnP
-        camera_matrix = K
-        rmat, tvec, success, weighted_reprojection_error, avg_reprojection_error, max_reprojection_error, projected_points, rvec = \
-        aux.recover_camera_extrinsics_simple(object_points, image_points, camera_matrix)
+        # camera_matrix = K
+        # rmat, tvec, success, weighted_reprojection_error, avg_reprojection_error, max_reprojection_error, projected_points, rvec = \
+        # aux.recover_camera_extrinsics_simple(object_points, image_points, camera_matrix)
 
 
         out = aux.run_multiple_recover_extrinsics(object_points,image_points,MAX_REPROJECTION_ERROR_3D_to_2D,
@@ -320,7 +337,7 @@ class ImageKeypointsViewer:
         print('avg_reprojection_error' + str(avg_reprojection_error))
         print('max_reprojection_error' + str(max_reprojection_error))
         #TODO: compute error etc
-        if(success):
+        if(out['success']):
             for i, name in enumerate(projection3D.keys()):
                 projection3D[name] = projected_points[i,:]
 
@@ -353,7 +370,7 @@ class ImageKeypointsViewer:
         x_click = event.x / self.zoom_scale
         y_click = (event.y - 20) / self.zoom_scale
 
-        tolerance = 20
+        tolerance = 5
 
         for name, keypoint_item in self.keypoint_items.items():
             bbox = self.canvas.bbox(keypoint_item)
@@ -417,9 +434,9 @@ class ImageKeypointsViewer:
         self.data3D[self.index]["valid_projection"] = True
         self.show_image()
 
-    def update_mode(self):
-        print(f"Mode changed to: {self.mode_var.get()}")
-        # Placeholder for actual mode switch functionality
+    # def update_mode(self):
+    #     print(f"Mode changed to: {self.mode_var.get()}")
+    #     # Placeholder for actual mode switch functionality
 
 if __name__ == "__main__":
     root = tk.Tk()
