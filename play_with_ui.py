@@ -1,9 +1,13 @@
 import tkinter as tk
+from cgitb import enable
 from tkinter import Canvas, Checkbutton, BooleanVar, Button, Entry, Label, filedialog, font, StringVar, OptionMenu, Radiobutton
+from tkinter.tix import *
+
 from PIL import Image, ImageTk
 import copy
 import pickle
 import aux
+from utils import *
 
 import numpy as np
 
@@ -71,11 +75,9 @@ data3D = [
 ]
 
 
-def rgb_to_hex(rgb):
-    return '#{:02x}{:02x}{:02x}'.format(rgb[0],rgb[1],rgb[2])
-
 # Projection data
 projectionData = {'fov_xy': (-1,-1), 'ypr': (0,0,0), 't_xyz': (None,None,None), 'num_points': None, 'max_error': None }
+
 
 class ImageKeypointsViewer:
     def __init__(self, root, data, data3D, projectionData):
@@ -85,10 +87,16 @@ class ImageKeypointsViewer:
         self.projectionData = projectionData
         self.index = 0
         self.zoom_scale = 1.0
+        self.translateX = 0
+        self.translateY = 0
+
         self.show_labels = BooleanVar(value=True)
+        self.use_all_points = BooleanVar(value=False)
         self.show_mesh = BooleanVar(value=False)
         self.selected_keypoint = None
         self.original_data = [copy.deepcopy(entry) for entry in data]  # Make a deep copy of original data
+
+
 
         # Canvas for displaying images
         self.canvas = Canvas(root, width=800, height=600)
@@ -121,28 +129,33 @@ class ImageKeypointsViewer:
         self.save_button = Button(root, text="Save Changes", command=self.save_changes)
         self.save_button.pack(pady=5)
         self.save_button.place(relx=1.0, rely=1.0, x=-10, y=-60, anchor='se')  # Place button at bottom right
+        CustomTooltip(self.save_button, "Save default for current image")
+
 
         self.revert_button = Button(root, text="Revert Changes", command=self.revert_changes)
         self.revert_button.pack(pady=5)
         self.revert_button.place(relx=1.0, rely=1.0, x=-10, y=-100, anchor='se')  # Place button at bottom right
+        CustomTooltip(self.revert_button, "Back to last saved for current image")
 
         # Add "Save Results" button with bold font
         bold_font = font.Font(weight="bold")
         self.save_results_button = Button(root, text="Save Results", command=self.save_results, font=bold_font)
         self.save_results_button.place(relx=1.0, rely=1.0, x=-10, y=-10, anchor='se')  # Place button at bottom right
+        CustomTooltip(self.save_results_button, "Save all results in file")
 
 
 
         # Add "Overlay 3D" button
         self.overlay_3d_button = Button(root, text="Overlay 3D", command=self.overlay_3d)
         self.overlay_3d_button.pack(pady=5)
-        self.overlay_3d_button.place(relx=1.0, rely=1.0, x=-10, y=-140, anchor='se')  # Place button at bottom right
+        self.overlay_3d_button.place(relx=1.0, rely=1.0, x=-10, y=-140, anchor='se')  # Place button
+        CustomTooltip(self.overlay_3d_button, "Compute 3D to 2D projection")
 
-        # Add dropdown menu for Edit 3D transform
-        # self.transform_var = StringVar(value="None")
-        # Label(self.control_frame, text="Edit 3D Transform").pack(pady=5)
-        # self.transform_dropdown = OptionMenu(self.control_frame, self.transform_var, "None", "XYZ", "yaw", "pitch", "roll")
-        # self.transform_dropdown.pack()
+        # Add use all points for projection checkbox
+        self.label_checkbox = Checkbutton(root, text="Use all points", variable=self.use_all_points, command=self.set_change_use_all_points)
+        self.label_checkbox.place(relx=1.0, rely=1.0, x=-120, y=-140, anchor='se')  # Place checkbox at top right
+
+
 
         # Add projection data input fields
         self.projection_vars = {}
@@ -167,12 +180,25 @@ class ImageKeypointsViewer:
         # self.mesh_checkbox = Checkbutton(root, text="Show Mesh", variable=self.show_mesh, command=self.show_image)
         # self.mesh_checkbox.place(relx=1.0, x=-17, y=50, anchor='ne')  # Place checkbox at top right under previous
 
-        self.mesh_button = tk.Button(root, text="Show Mesh", command=self.set_show_mesh)
+        self.adjust_2D_to_3D_button = tk.Button(root, text="Adjust 2D to 3D", command=self.set_adjust_2D_to_3D)
+        self.adjust_2D_to_3D_button.place(relx=1.0, x=-17, y=150, anchor='ne')
+        CustomTooltip(self.adjust_2D_to_3D_button, "Move all 2D markers on top of their 3D projections")
+
+        self.mesh_button = tk.Button(root, text="Show Mesh", command=self.set_show_mesh, state = "disabled")
         self.mesh_button.place(relx=1.0, x=-17, y=50, anchor='ne')
+
+        CustomTooltip(self.mesh_button, "Draw mesh on top of original image")
 
         # Bind keys for zooming
         self.root.bind("<KeyPress-A>", self.zoom_in)  # Capital 'A'
         self.root.bind("<KeyPress-a>", self.zoom_out)  # Lowercase 'a'
+
+        # Bind keys for translating
+        self.root.bind("<Left>", self.translate_left)
+        self.root.bind("<Right>", self.translate_right)
+        self.root.bind("<Up>", self.translate_up)
+        self.root.bind("<Down>", self.translate_down)
+
 
         # Bind mouse events for selecting and dragging keypoints
         self.canvas.bind("<Button-1>", self.select_keypoint)  # Left mouse button click
@@ -184,6 +210,14 @@ class ImageKeypointsViewer:
         self.show_mesh.set(True)
         self.show_image()
         self.show_mesh.set(False)
+
+    def set_adjust_2D_to_3D(self):
+        self.Addjust2Dto3D()
+        self.show_image()
+
+    def set_change_use_all_points(self):
+        self.data3D[self.index]["valid_projection"] = False
+        self.mesh_button["state"] = "disabled"
 
     def show_image(self):
         # Clear canvas
@@ -217,9 +251,12 @@ class ImageKeypointsViewer:
 
         image = Image.open(image_path)
         image_path = orig_image_path
-        # Apply zoom
+        # Apply zoom and translate
         width, height = image.size
         new_size = (int(width * self.zoom_scale), int(height * self.zoom_scale))
+
+        image = pil_image_translate(image, self.translateX, self.translateY)# translate
+
         image = image.resize(new_size, Image.LANCZOS)
 
         self.photo = ImageTk.PhotoImage(image)
@@ -235,6 +272,8 @@ class ImageKeypointsViewer:
         ind = 0
         for name, point in keypoints.items():
             x, y = point
+            x = x - self.translateX
+            y = y - self.translateY
             x = int(x * self.zoom_scale)
             y = int(y * self.zoom_scale) + 20  # Adjust for text offset
             keypoint_item = self.canvas.create_oval(x-5, y-5, x+5, y+5, fill=rgb_to_hex(COLOR_PER_POINT[ind]), tags=name)
@@ -247,6 +286,8 @@ class ImageKeypointsViewer:
             ind = 0
             for name, point in projection3D.items():
                 x, y = point
+                x = x - self.translateX
+                y = y - self.translateY
                 x = int(x * self.zoom_scale)
                 y = int(y * self.zoom_scale) + 20  # Adjust for text offset
                 #keypoint_3D_item = self.canvas.create_oval(x-5, y-5, x+5, y+5, fill="green", tags=name)
@@ -283,12 +324,40 @@ class ImageKeypointsViewer:
         if (proj_params is not None):
             entry.insert(0, str(proj_params['ypr_deg']))
 
-    def compute_3D_projection(self):
+    def Addjust2Dto3D(self):
+        image_info = self.data[self.index]
+        keypoints = image_info["keypoints"]
+
+        theeD_info = self.data3D[self.index]
+        projection3D = theeD_info["projection"]
+
+        if (theeD_info['valid_projection']):
+            for k in keypoints.keys():
+                keypoints[k] = projection3D[k]
+
+            for k in theeD_info['projection_params']:
+                if("error" in k):
+                    theeD_info['projection_params'][k] = 0
+                if(k == 'selected_points'):
+                    theeD_info['projection_params'][k] = list(range(len(keypoints)))
+                if(k == "success"):
+                    theeD_info['projection_params'][k] = True
+
+
+            # self.data3D[self.index]['projection_params'] = out
+            self.update_proj_params(theeD_info['projection_params'])
+
+
+
+
+
+    def compute_3D_projection(self, min_points_2D_to_3D = MIN_POINTS_3D_to_2D):
 
         # Load the image
         image_info = self.data[self.index]
         image_path = image_info["image_path"]
         keypoints = image_info["keypoints"]
+
 
 
         image = Image.open(image_path)
@@ -300,6 +369,7 @@ class ImageKeypointsViewer:
         theeD_info = self.data3D[self.index]
         keypoints3D = theeD_info["keypoints"]
         projection3D = theeD_info["projection"]
+
 
 
         # Intrinsic matrix K
@@ -328,7 +398,7 @@ class ImageKeypointsViewer:
 
 
         out = aux.run_multiple_recover_extrinsics(object_points,image_points,MAX_REPROJECTION_ERROR_3D_to_2D,
-                                                  MIN_POINTS_3D_to_2D, IFOVS_3D_to_2D,W,H)
+                                                  min_points_2D_to_3D, IFOVS_3D_to_2D,W,H)
 
         max_reprojection_error = out['max_reprojection_error']
         avg_reprojection_error = out['avg_reprojection_error']
@@ -347,9 +417,6 @@ class ImageKeypointsViewer:
 
 
 
-
-
-
     def show_prev_image(self):
         self.index = (self.index - 1) % len(self.data)
         self.show_image()
@@ -360,15 +427,32 @@ class ImageKeypointsViewer:
 
     def zoom_in(self, event=None):
         self.zoom_scale *= 1.1
+        #print("self.zoom_scale =" + str(self.zoom_scale))
         self.show_image()
 
     def zoom_out(self, event=None):
         self.zoom_scale /= 1.1
         self.show_image()
 
+    def translate_right(self, event=None):
+        self.translateX -= 1
+        #print("self.translateX =" + str(self.translateX ))
+        self.show_image()
+
+    def translate_left(self, event=None):
+        self.translateX += 1
+        self.show_image()
+    def translate_up(self, event=None):
+        self.translateY += 1
+        self.show_image()
+
+    def translate_down(self, event=None):
+        self.translateY -= 1
+        self.show_image()
+
     def select_keypoint(self, event):
-        x_click = event.x / self.zoom_scale
-        y_click = (event.y - 20) / self.zoom_scale
+        x_click = (event.x - self.translateX) / self.zoom_scale
+        y_click = (event.y - self.translateY - 0*20) / self.zoom_scale
 
         tolerance = 5
 
@@ -376,10 +460,15 @@ class ImageKeypointsViewer:
             bbox = self.canvas.bbox(keypoint_item)
             if bbox:
                 x0, y0, x1, y1 = bbox
+                x0 = x0 - self.translateX
+                x1 = x1 - self.translateX
+                y0 = y0 - self.translateY
+                y1 = y1 - self.translateY
+
                 x0 /= self.zoom_scale
-                y0 = (y0 - 20) / self.zoom_scale
+                y0 = (y0 - 0*20) / self.zoom_scale
                 x1 /= self.zoom_scale
-                y1 = (y1 - 20) / self.zoom_scale
+                y1 = (y1 - 0*20) / self.zoom_scale
 
                 if (x0 - tolerance <= x_click <= x1 + tolerance and
                     y0 - tolerance <= y_click <= y1 + tolerance):
@@ -391,15 +480,20 @@ class ImageKeypointsViewer:
         self.show_image()  # Update display to show selected keypoints
 
     def move_keypoint(self, event):
+
+       # print('Event:(' + str(int(event.x)) + "," + str(int(event.y)))
+
+
         if self.selected_keypoint:
+            self.mesh_button["state"] = "disabled"
             x_new = event.x
             y_new = event.y - 20  # Adjust for text offset
             self.canvas.coords(self.keypoint_items[self.selected_keypoint],
                                x_new-5, y_new-5, x_new+5, y_new+5)
 
             # Update keypoint data
-            x_data = (x_new / self.zoom_scale)
-            y_data = (y_new - 20) / self.zoom_scale
+            x_data = ((x_new ) / self.zoom_scale) + self.translateX
+            y_data = ((y_new ) - 0*20) / self.zoom_scale + self.translateY
             self.data[self.index]["keypoints"][self.selected_keypoint] = (x_data, y_data)
 
             self.data3D[self.index]["valid_projection"] = False
@@ -420,6 +514,10 @@ class ImageKeypointsViewer:
             with open(save_path, 'wb') as f:
                 pickle.dump({'data': self.data, 'data3D': self.data3D}, f)
 
+            #save to json
+            save_path_json = save_path.replace(".pkl", ".json")
+            save_data_2_json(self.data, self.data3D, save_path_json)
+
     def update_projection_data(self, key, var):
         try:
             self.projectionData[key] = float(var.get())
@@ -430,8 +528,15 @@ class ImageKeypointsViewer:
     def overlay_3d(self):
         print("Overlay 3D button pressed")
         # Placeholder for actual 3D overlay functionality
-        self.compute_3D_projection()
+        if(self.use_all_points.get() == False):
+            self.compute_3D_projection()
+        else:
+            print('Compute projection, use all points')
+            nkp = len(self.data[self.index]["keypoints"])
+            self.compute_3D_projection(min_points_2D_to_3D=nkp)
         self.data3D[self.index]["valid_projection"] = True
+        self.mesh_button["state"] = "normal"
+        print('Best projection computed')
         self.show_image()
 
     # def update_mode(self):
