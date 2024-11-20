@@ -6,14 +6,18 @@ from tkinter.tix import *
 from PIL import Image, ImageTk
 import copy
 import pickle
+import cv2
 import aux
+
 from utils import *
 
 import numpy as np
 
 #global params
+SEARCH_FACTOR_2D2D = 0.5
 MAX_REPROJECTION_ERROR_3D_to_2D = 3
 MIN_POINTS_3D_to_2D = 4
+MIN_CORR_THRESHOLD = 0.3 # for 2D from 2D
 IFOVS_3D_to_2D = np.arange(start = 0.01, stop = 0.2,step = 0.005).tolist()
 COLOR_PER_POINT = [(255,0,0),
                    (0,255,0),
@@ -27,16 +31,32 @@ COLOR_PER_POINT = [(255,0,0),
 # Example data
 data = [
     {
-        "image_path": "/home/borisef/projects/pytorch3D/a10.png",
-        "keypoints": {"nose_tip": (100, 150), "left_wing": (200, 150), "right_wing": (150, 200), 'cone_edge': (110,100),
-                      "tip_of_vertical_stabilizer":(50,50), "left_tip_of_horizontal_stabilizer": (100,25),
-                      "right_tip_of_horizontal_stabilizer": (100,250)}
+        "image_path": "/home/borisef/projects/pytorch3D/data/a100.png",
+        "keypoints": {"nose_tip": (453, 250), "left_wing": (327, 178), "right_wing": (338, 336), 'cone_edge': (197,255),
+                      "tip_of_vertical_stabilizer":(196,206), "left_tip_of_horizontal_stabilizer": (213,235),
+                      "right_tip_of_horizontal_stabilizer": (170,283)},
+        "valid_2D_from_2D_estimation": False
     },
     {
-        "image_path": "/home/borisef/projects/pytorch3D/a101.png",
-        "keypoints": {"nose_tip": (120, 150), "left_wing": (210, 150), "right_wing": (160, 200), 'cone_edge': (110,100),
+        "image_path": "/home/borisef/projects/pytorch3D/data/a100_shift_right.png",
+        "keypoints": {"nose_tip": (557, 248), "left_wing": (210, 150), "right_wing": (160, 200), 'cone_edge': (110,100),
                       "tip_of_vertical_stabilizer":(50,60), "left_tip_of_horizontal_stabilizer": (110,25),
-                      "right_tip_of_horizontal_stabilizer": (100,250)}
+                      "right_tip_of_horizontal_stabilizer": (100,250)},
+        "valid_2D_from_2D_estimation": False
+    },
+    {
+        "image_path": "/home/borisef/projects/pytorch3D/data/a100_changed.png",
+        "keypoints": {"nose_tip": (557, 248), "left_wing": (210, 150), "right_wing": (160, 200), 'cone_edge': (110,100),
+                      "tip_of_vertical_stabilizer":(50,60), "left_tip_of_horizontal_stabilizer": (110,25),
+                      "right_tip_of_horizontal_stabilizer": (100,250)},
+        "valid_2D_from_2D_estimation": False
+    },
+    {
+        "image_path": "/home/borisef/projects/pytorch3D/data/a101.png",
+        "keypoints": {"nose_tip": (557, 248), "left_wing": (210, 150), "right_wing": (160, 200), 'cone_edge': (110,100),
+                      "tip_of_vertical_stabilizer":(50,60), "left_tip_of_horizontal_stabilizer": (110,25),
+                      "right_tip_of_horizontal_stabilizer": (100,250)},
+        "valid_2D_from_2D_estimation": False
     }
     # Add more dictionaries as needed
 ]
@@ -58,22 +78,26 @@ data3D = [
 
 
     },
-    {
-        "model_path": "/home/borisef/projects/pytorch3D/data/bixler/bixler.obj",
-        "keypoints": {"nose_tip": (0, 16.25, 0.25), "left_wing": (-26, 1.22, 4.55), "right_wing": (26, 1.22, 4.55),
-                      'cone_edge': (0,-15,0),
-                      "tip_of_vertical_stabilizer": (0,-14.4,5.7),
-                      "left_tip_of_horizontal_stabilizer": (-8.13,-15.21,0),
-                      "right_tip_of_horizontal_stabilizer": (8.13,-15.21,0)},
-        "projection": {"nose_tip": (100,100), "left_wing": (200,200), "right_wing": (300,300), 'cone_edge': (110,100),
-                      "tip_of_vertical_stabilizer":(50,50), "left_tip_of_horizontal_stabilizer": (100,25),
-                      "right_tip_of_horizontal_stabilizer": (100,250)},
-        'valid_projection': False,
-        'projection_params': None
-    },
+    # {
+    #     "model_path": "/home/borisef/projects/pytorch3D/data/bixler/bixler.obj",
+    #     "keypoints": {"nose_tip": (0, 16.25, 0.25), "left_wing": (-26, 1.22, 4.55), "right_wing": (26, 1.22, 4.55),
+    #                   'cone_edge': (0,-15,0),
+    #                   "tip_of_vertical_stabilizer": (0,-14.4,5.7),
+    #                   "left_tip_of_horizontal_stabilizer": (-8.13,-15.21,0),
+    #                   "right_tip_of_horizontal_stabilizer": (8.13,-15.21,0)},
+    #     "projection": {"nose_tip": (100,100), "left_wing": (200,200), "right_wing": (300,300), 'cone_edge': (110,100),
+    #                   "tip_of_vertical_stabilizer":(50,50), "left_tip_of_horizontal_stabilizer": (100,25),
+    #                   "right_tip_of_horizontal_stabilizer": (100,250)},
+    #     'valid_projection': False,
+    #     'projection_params': None
+    # },
     # Add more dictionaries as needed
 ]
 
+len_data = len(data)
+len_data3D = len(data3D)
+if(len_data3D == 1):
+    data3D = len_data*data3D # not sure if works without deep copy
 
 # Projection data
 projectionData = {'fov_xy': (-1,-1), 'ypr': (0,0,0), 't_xyz': (None,None,None), 'num_points': None, 'max_error': None }
@@ -92,6 +116,7 @@ class ImageKeypointsViewer:
 
         self.show_labels = BooleanVar(value=True)
         self.use_all_points = BooleanVar(value=False)
+        self.around_current = BooleanVar(value=False)
         self.show_mesh = BooleanVar(value=False)
         self.selected_keypoint = None
         self.original_data = [copy.deepcopy(entry) for entry in data]  # Make a deep copy of original data
@@ -152,8 +177,20 @@ class ImageKeypointsViewer:
         CustomTooltip(self.overlay_3d_button, "Compute 3D to 2D projection")
 
         # Add use all points for projection checkbox
-        self.label_checkbox = Checkbutton(root, text="Use all points", variable=self.use_all_points, command=self.set_change_use_all_points)
+        self.label_checkbox = Checkbutton(root, text="Use all points", variable=self.use_all_points,
+                                          command=self.set_change_use_all_points)
         self.label_checkbox.place(relx=1.0, rely=1.0, x=-120, y=-140, anchor='se')  # Place checkbox at top right
+
+        # Add "Overlay 2D from previous" button
+        self.overlay_2d_to_2d_button = Button(root, text="Overlay 2D", command=self.overlay_2d_from_2D)
+        self.overlay_2d_to_2d_button.pack(pady=5)
+        self.overlay_2d_to_2d_button.place(relx=1.0, rely=1.0, x=-10, y=-180, anchor='se')  # Place button
+        CustomTooltip(self.overlay_2d_to_2d_button, "Compute 2D to 2D projection")
+
+        # Add search around current  for 2D 2D checkbox
+        self.label_checkbox = Checkbutton(root, text="Around current", variable=self.around_current,
+                                          command=self.set_change_around_current)
+        self.label_checkbox.place(relx=1.0, rely=1.0, x=-120, y=-180, anchor='se')  # Place checkbox at top right
 
 
 
@@ -180,9 +217,9 @@ class ImageKeypointsViewer:
         # self.mesh_checkbox = Checkbutton(root, text="Show Mesh", variable=self.show_mesh, command=self.show_image)
         # self.mesh_checkbox.place(relx=1.0, x=-17, y=50, anchor='ne')  # Place checkbox at top right under previous
 
-        self.adjust_2D_to_3D_button = tk.Button(root, text="Adjust 2D to 3D", command=self.set_adjust_2D_to_3D)
-        self.adjust_2D_to_3D_button.place(relx=1.0, x=-17, y=150, anchor='ne')
-        CustomTooltip(self.adjust_2D_to_3D_button, "Move all 2D markers on top of their 3D projections")
+        self.adjust_2D_to_3D_button = tk.Button(root, text="Adjust to overlayed", command=self.set_adjust_2D_to_3D)
+        self.adjust_2D_to_3D_button.place(relx=1.0, x=-5, y=150, anchor='ne')
+        CustomTooltip(self.adjust_2D_to_3D_button, "Move all 2D markers on top of their overlayed estimations")
 
         self.mesh_button = tk.Button(root, text="Show Mesh", command=self.set_show_mesh, state = "disabled")
         self.mesh_button.place(relx=1.0, x=-17, y=50, anchor='ne')
@@ -213,11 +250,16 @@ class ImageKeypointsViewer:
 
     def set_adjust_2D_to_3D(self):
         self.Addjust2Dto3D()
+        self.Addjust2Dto2D()
         self.show_image()
 
     def set_change_use_all_points(self):
         self.data3D[self.index]["valid_projection"] = False
         self.mesh_button["state"] = "disabled"
+
+    def set_change_around_current(self):
+        self.data[self.index]["valid_2D_from_2D_estimation"] = False
+        self.show_image()
 
     def show_image(self):
         # Clear canvas
@@ -296,6 +338,26 @@ class ImageKeypointsViewer:
                 #     self.canvas.create_text(x, y-10, text=name, fill="black")
                 #self.keypoint_items[name] = keypoint_item
                 ind = ind + 1
+        # draw 2D_from_2D
+        if(self.data[self.index]["valid_2D_from_2D_estimation"] == True):
+            estimation= self.data[self.index]['estimation_2D_from_2D']
+            markers = estimation['out_markers']
+            ind = 0
+            for ma in markers:
+                x = ma[0]
+                y = ma[1]
+                x = x - self.translateX
+                y = y - self.translateY
+                x = int(x * self.zoom_scale)
+                y = int(y * self.zoom_scale) + 20  # Adjust for text offset
+                self.canvas.create_rectangle((x - 1, y - 6, x + 1, y + 6), fill=rgb_to_hex(COLOR_PER_POINT[ind]),
+                                             outline=rgb_to_hex(COLOR_PER_POINT[ind]))
+
+                self.canvas.create_rectangle((x - 6, y - 1, x + 6, y + 1), fill=rgb_to_hex(COLOR_PER_POINT[ind]),
+                                             outline=rgb_to_hex(COLOR_PER_POINT[ind]))
+                ind = ind + 1
+
+
 
     def update_proj_params(self, proj_params=None):
         entry= self.projection_entries['num_points']
@@ -347,6 +409,77 @@ class ImageKeypointsViewer:
             # self.data3D[self.index]['projection_params'] = out
             self.update_proj_params(theeD_info['projection_params'])
 
+    def Addjust2Dto2D(self):
+        image_info = self.data[self.index]
+        keypoints = image_info["keypoints"]
+
+
+
+        if (image_info['valid_2D_from_2D_estimation']):
+            for ik, k in enumerate(keypoints.keys()):
+                keypoints[k] = image_info['estimation_2D_from_2D']['out_markers'][ik,:]
+
+
+
+
+    def  compute_2D_from_2D_estimation(self):
+        SHOW = True #debug
+        # Load the image
+        image_info1 = self.data[self.index-1]
+        image_path1 = image_info1["image_path"]
+        keypoints1 = image_info1["keypoints"]
+
+        image_info2 = self.data[self.index]
+        image_path2 = image_info2["image_path"]
+        keypoints2 = image_info2["keypoints"]
+
+        image1 = cv2.imread(image_path1)
+        image2 = cv2.imread(image_path2)
+
+        im1_gray = cv2.cvtColor(image1, cv2.COLOR_BGR2GRAY)
+        im2_gray = cv2.cvtColor(image2, cv2.COLOR_BGR2GRAY)
+
+        # get 2D and 2D
+        NP = len(keypoints1)
+        markers1 = np.zeros((NP, 2), dtype=np.float32)
+        markers2 = np.zeros((NP, 2), dtype=np.float32)
+        for i, xy1_xy2 in enumerate(zip(keypoints1.values(), keypoints2.values())):
+            markers1[i, :] = xy1_xy2[0]
+            markers2[i, :] = xy1_xy2[1]
+
+        SEARCH_RAD, SMALL_SEARCH_RAD, MASK_RAD = find_default_params_2d2d(im1_gray, im2_gray, markers1, markers2,
+                                                                                factor=SEARCH_FACTOR_2D2D)
+        mask1 = compute_mask(im1=im1_gray, markers1=markers1, maskRadius=MASK_RAD)
+
+        # find global shift
+        best_shift, best_shifted_markers1, best_shifted_markers2 = overlay_2D_to_2D(im1=im1_gray, im2=im2_gray,
+                                                                                          markers1=copy.deepcopy(
+                                                                                              markers1),
+                                                                                          markers2=copy.deepcopy(
+                                                                                              markers2),
+                                                                                          mask1=mask1,
+                                                                                          searchRadius=SEARCH_RAD,
+                                                                                          thresh=MIN_CORR_THRESHOLD,
+                                                                                          show=SHOW,
+                                                                                        around_current = self.around_current.get()
+                                                                                    )
+
+        best_shifted_markers1_refined, best_shifted_markers2_refined = refine_overlay_2D_to_2D(
+            im1=im1_gray, im2=im2_gray, markers1=copy.deepcopy(markers1), best_shifted_markers1=copy.deepcopy(best_shifted_markers1),
+            best_shifted_markers2=copy.deepcopy(best_shifted_markers2), refineMaskRad=MASK_RAD, searchRadius=SMALL_SEARCH_RAD,
+            show=SHOW, around_current=self.around_current.get())
+
+        #TODO: put it in one dict + scores
+        out_dict = {'best_shifted_markers1_refined': best_shifted_markers1_refined,
+                    'best_shifted_markers2_refined': best_shifted_markers2_refined,
+                    'best_shifted_markers1':best_shifted_markers1,
+                    'best_shifted_markers2': best_shifted_markers2,
+                    'out_markers': best_shifted_markers1_refined
+                    }
+        if(self.around_current.get()):
+            out_dict['out_markers'] = best_shifted_markers2_refined
+
+        self.data[self.index]['estimation_2D_from_2D'] = out_dict
 
 
 
@@ -498,7 +631,6 @@ class ImageKeypointsViewer:
 
             self.data3D[self.index]["valid_projection"] = False
             self.update_proj_params()
-
             self.show_image()  # Update display
 
     def save_changes(self):
@@ -535,8 +667,27 @@ class ImageKeypointsViewer:
             nkp = len(self.data[self.index]["keypoints"])
             self.compute_3D_projection(min_points_2D_to_3D=nkp)
         self.data3D[self.index]["valid_projection"] = True
+        self.data[self.index]['valid_2D_from_2D_estimation'] = False
         self.mesh_button["state"] = "normal"
         print('Best projection computed')
+        self.show_image()
+
+    def overlay_2d_from_2D(self):
+        print("Overlay 2D_from_2D button pressed")
+        # Placeholder for actual 2D overlay functionality
+
+
+        #TODO: if not 1st frame
+        if(self.index == 0):
+            #print("1st frame")
+            tk.messagebox.showwarning(title='Ooops', message='First frame in sequence')
+            return
+        self.compute_2D_from_2D_estimation()
+
+        self.data[self.index]["valid_2D_from_2D_estimation"] = True
+        self.data3D[self.index]["valid_projection"] = False
+
+        print('Best estimation from previous markers computed')
         self.show_image()
 
     # def update_mode(self):
