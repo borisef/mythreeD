@@ -18,6 +18,64 @@ mycolors = [
 ]*10
 
 
+def compute_largest_vertex_distance(mesh_file):
+    """
+    Computes the largest distance between any two vertices in a 3D mesh.
+
+    Parameters:
+    - mesh_file: Path to the mesh file (e.g., .obj, .ply).
+
+    Returns:
+    - max_distance: The largest distance between any two vertices.
+    """
+    # Load the mesh
+    mesh = trimesh.load(mesh_file)
+
+    # Get the vertices as a NumPy array
+    vertices = mesh.vertices
+
+    # Compute the pairwise distances using broadcasting for efficiency
+    diff = vertices[:, np.newaxis, :] - vertices[np.newaxis, :, :]
+    distances = np.linalg.norm(diff, axis=2)
+
+    # Find the maximum distance
+    max_distance = np.max(distances)
+
+    return max_distance
+
+def compute_object_bounding_box(obj_file, camera_matrix, rvec, tvec, image_size):
+    """
+    Compute the 2D bounding box of the entire object in the image plane.
+
+    Parameters:
+    - mesh: The 3D mesh object (Trimesh object).
+    - camera_matrix: Intrinsic camera matrix (3x3).
+    - rvec, tvec: Extrinsic camera parameters (rotation and translation vectors).
+    - image_size: Size of the output image (width, height).
+
+    Returns:
+    - bbox: (x_min, y_min, x_max, y_max) bounding box in pixel coordinates.
+    """
+    # Get the vertices of the mesh
+    mesh = trimesh.load(obj_file)
+    vertices = mesh.vertices
+
+    # Project all vertices into the image plane
+    vertices_homogeneous = vertices.reshape(-1, 3)
+    projected_points, _ = cv2.projectPoints(vertices_homogeneous, rvec, tvec, camera_matrix, distCoeffs=None)
+    projected_points = projected_points.squeeze()
+
+    # Ensure the points are within image bounds
+    x_coords = np.clip(projected_points[:, 0], 0, image_size[0] - 1)
+    y_coords = np.clip(projected_points[:, 1], 0, image_size[1] - 1)
+
+    # Compute the bounding box
+    x_min, x_max = int(np.min(x_coords)), int(np.max(x_coords))
+    y_min, y_max = int(np.min(y_coords)), int(np.max(y_coords))
+
+    return (x_min, y_min, x_max, y_max)
+
+
 def draw_keypoints_extended1(input_image_path, output_image_path, keypoints, draw_keypoint_name=False):
     # Open the input image
     img = Image.open(input_image_path).convert("RGB")
@@ -502,6 +560,18 @@ kpts3D = {  'Nose':[0, 0.376,-0.648],
 kpt_color = [0,0,1]
 kpt_radius = 0.1
 
+
+
+bb = compute_object_bounding_box(obj_file, camera_matrix, rvec, tvec, image_size)
+#(x_min, y_min, x_max, y_max)
+L = max(bb[2] - bb[0],bb[3] - bb[1])
+print(bb)
+print(L)
+
+
+dd = compute_largest_vertex_distance(obj_file)
+kpt_radius = dd/20 #automatic radius
+
 # Process
 vertices = load_mesh(obj_file)
 projected_points = project_points(vertices, camera_matrix, rvec, tvec)
@@ -529,7 +599,7 @@ for i,k in enumerate(kpts3D):
         tvec=tvec,  # Camera at (0, 0, 5)
         image_size=image_size,
         one_keypoint=kpts3D[k],
-        kpt_radius=0.1, #TODO: compute auto 0.1 of size of object
+        kpt_radius=kpt_radius, #TODO: compute auto 0.1 of size of object
         kpt_color=[0, 0, 1],  # Red color
         output_image="/home/borisef/projects/pytorch3D/data/output/debug_image.png"
     )
@@ -545,4 +615,3 @@ output_im_path_with_markers = "/home/borisef/projects/pytorch3D/data/output/rend
 #draw_keypoints(output_im_path,output_im_path_with_markers,kpts3D,draw_keypoint_name= True)
 draw_keypoints_extended(output_im_path,output_im_path_with_markers,kpts3D,draw_keypoint_name= True)
 #draw_keypoints_extended1(output_im_path,output_im_path_with_markers,kpts3D,draw_keypoint_name= True)
-
