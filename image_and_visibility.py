@@ -570,7 +570,7 @@ print(L)
 
 
 dd = compute_largest_vertex_distance(obj_file)
-kpt_radius = dd/20 #automatic radius
+kpt_radius = dd/5 #automatic radius
 
 # Process
 vertices = load_mesh(obj_file)
