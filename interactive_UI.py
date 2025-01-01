@@ -5,8 +5,23 @@ import cv2
 import trimesh
 from PIL import Image, ImageTk
 
-MAX_VERTICES = 15000
+MAX_VERTICES = 5000
 
+
+def combine_rot_vecs(rot_vec_old, rot_vec_new):
+    #rotate first with rot_vec_old, after that with rot_vec_new
+    #output:  final rot_vec
+    # Convert rotation vectors to rotation matrices
+    R_old, _ = cv2.Rodrigues(rot_vec_old)
+    R_new, _ = cv2.Rodrigues(rot_vec_new)
+
+    # Combine the rotations by multiplying the matrices
+    R_combined = R_new @ R_old
+
+    # Convert the resulting rotation matrix back to a rotation vector
+    rot_vec_combined, _ = cv2.Rodrigues(R_combined)
+
+    return rot_vec_combined
 
 class MeshProjectionGUI:
     def __init__(self, root):
@@ -40,6 +55,9 @@ class MeshProjectionGUI:
         self.last_mouse_x = None
         self.last_mouse_y = None
         self.last_mouse_z = None
+        self.last_mouse_yaw = None
+        self.last_mouse_pitch = None
+        self.last_mouse_roll = None
 
         # GUI components
         self.create_widgets()
@@ -160,7 +178,8 @@ class MeshProjectionGUI:
         #     print("Reverted to last recorded state.")
         # else:
         #     print("No previous state to undo.")
-        self.camera_matrix = self.default_camera_matrix.copy()
+        self.camera_matrix = np.array(self.default_camera_matrix, dtype=np.float32)
+
         self.tvec = self.default_tvec.copy()
         self.rvec = self.default_rvec.copy()
         self.update_entries()
@@ -177,10 +196,10 @@ class MeshProjectionGUI:
         self.root.unbind("<KP_Subtract>")
         self.root.unbind("<KP_Add>")
 
-        self.canvas.bind("<ButtonPress-1>", self.on_mouse_press)
+        self.canvas.bind("<ButtonPress-1>", self.on_mouse_press1)
         self.canvas.bind("<ButtonPress-2>", self.on_mouse_press2)
         self.canvas.bind("<ButtonPress-3>", self.on_mouse_press3)
-        self.canvas.bind("<B1-Motion>", self.on_mouse_drag)
+        self.canvas.bind("<B1-Motion>", self.on_mouse_drag1)
         self.canvas.bind("<B2-Motion>", self.on_mouse_drag2)
         self.canvas.bind("<B3-Motion>", self.on_mouse_drag3)
 
@@ -209,28 +228,33 @@ class MeshProjectionGUI:
             self.root.bind("<KP_Add>", lambda event: self.update_vector(self.rvec, 2, rvec_increment_value))
 
 
-    def on_mouse_press(self, event):
+    def on_mouse_press1(self, event):
         self.mouse_dragging = True
         self.last_mouse_x = event.x
         self.last_mouse_y = event.y
+        self.last_mouse_yaw = event.x
 
     def on_mouse_press2(self, event):
         self.mouse_dragging = True
         self.last_mouse_z = event.x
         self.last_mouse_y = event.y
+        self.last_mouse_pitch = event.y
 
     def on_mouse_press3(self, event):
         self.mouse_dragging = True
         self.last_mouse_z = event.x
+        self.last_mouse_roll = event.x
 
-
-    def on_mouse_drag(self, event):
+    def on_mouse_drag1(self, event):
         print("drag 1")
         if self.mouse_dragging:
             dx = event.x - self.last_mouse_x
             dy = event.y - self.last_mouse_y
+            dyaw= event.x - self.last_mouse_yaw
+
             self.last_mouse_x = event.x
             self.last_mouse_y = event.y
+            self.last_mouse_yaw = event.x
 
             increment_value = self.tvec_increment.get() if self.interact_mode.get() == "tvec" else self.rvec_increment.get()
             increment_value = increment_value * 0.1
@@ -239,33 +263,38 @@ class MeshProjectionGUI:
                 self.update_vector(self.tvec, 0, dx * increment_value)
                 self.update_vector(self.tvec, 1, dy * increment_value)
             else:
-                self.update_vector(self.rvec, 0, dx * increment_value)
-                self.update_vector(self.rvec, 1, dy * increment_value)
+               # self.update_vector(self.rvec, 1, dyaw * increment_value)
+                self.update_vector_rvec(self.rvec, 1, dyaw * increment_value)
+
 
     def on_mouse_drag2(self, event):
         print("drag 2")
         if self.mouse_dragging:
-            dz = event.x - self.last_mouse_z
-            dy = event.y - self.last_mouse_y
-            self.last_mouse_z = event.x
-            self.last_mouse_y = event.y
+            dz = event.y - self.last_mouse_z
+            dpitch = event.y - self.last_mouse_pitch
+            self.last_mouse_z = event.y
+            self.last_mouse_pitch = event.y
+
 
             increment_value = self.tvec_increment.get() if self.interact_mode.get() == "tvec" else self.rvec_increment.get()
             increment_value = increment_value * 0.1
 
             if self.interact_mode.get() == "tvec":
                 self.update_vector(self.tvec, 2, dz * increment_value)
-                self.update_vector(self.tvec, 1, dy * increment_value)
+
             else:
-                self.update_vector(self.rvec, 2, dz * increment_value)
-                self.update_vector(self.rvec, 1, dy * increment_value)
+
+                #self.update_vector(self.rvec, 0, dpitch * increment_value)
+                self.update_vector_rvec(self.rvec, 0, dpitch * increment_value)
 
     def on_mouse_drag3(self, event):
         print("drag 3")
         if self.mouse_dragging:
             dz = event.x - self.last_mouse_z
+            droll = event.x - self.last_mouse_roll
 
             self.last_mouse_z = event.x
+            self.last_mouse_roll = event.x
 
 
             increment_value = self.tvec_increment.get() if self.interact_mode.get() == "tvec" else self.rvec_increment.get()
@@ -275,7 +304,9 @@ class MeshProjectionGUI:
                 self.update_vector(self.tvec, 2, dz * increment_value)
 
             else:
-                self.update_vector(self.rvec, 2, dz * increment_value)
+                #self.update_vector(self.rvec, 2, droll * increment_value)
+                self.update_vector_rvec(self.rvec, 2, droll * increment_value)
+
 
 
     def on_mouse_wheel(self, event):
@@ -325,6 +356,24 @@ class MeshProjectionGUI:
         self.update_entries()
         self.render_projection()
 
+    def update_vector_rvec(self, rvec, index, delta,method = "target"):
+        #"simple" - increment index
+        #"camera" - rotate twice new(old)
+        #"target" - rotate twice old(new)
+        rvec_new = np.array([0, 0, 0], dtype=np.float32)
+        rvec_new[index] = delta
+        if(method == "simple"):
+            rvec[index] += delta
+        if(method =="camera"):
+            self.rvec = combine_rot_vecs(self.rvec.copy(),rvec_new)
+        if (method == "target"):
+            self.rvec = combine_rot_vecs(rvec_new,self.rvec.copy())
+
+
+
+        self.update_entries()
+        self.render_projection()
+
     def update_tvec(self):
         try:
             self.tvec[0, 0] = float(self.tvec_x_entry.get())
@@ -367,10 +416,10 @@ class MeshProjectionGUI:
         self.rvec_z_entry.insert(0, self.rvec[2, 0])
 
         #TODO: set camera
-        # self.camera_matrix_entry.delete(0, tk.END)
-        # stri = str(self.camera_matrix.copy())
+        self.camera_matrix_entry.delete(0, tk.END)
+        stri = str(self.camera_matrix.copy().tolist())
         # # stri = s.replace("\n", "")
-        # self.camera_matrix_entry.insert(0,stri)
+        self.camera_matrix_entry.insert(0, stri)
 
         self.render_projection()
 
