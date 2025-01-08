@@ -4,10 +4,7 @@ import numpy as np
 import cv2
 import trimesh
 from PIL import Image, ImageTk
-
 MAX_VERTICES = 5000
-
-
 def combine_rot_vecs(rot_vec_old, rot_vec_new):
     #rotate first with rot_vec_old, after that with rot_vec_new
     #output:  final rot_vec
@@ -23,13 +20,15 @@ def combine_rot_vecs(rot_vec_old, rot_vec_new):
 
     return rot_vec_combined
 
+
+
 class MeshProjectionGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Mesh Projection GUI")
 
         # Default values
-        self.default_image_path = "/home/borisef/projects/pytorch3D/data/a10.png"
+        self.default_image_path = "/home/borisef/projects/pytorch3D/data/a100.png"
         #self.default_mesh_path = "/home/borisef/projects/pytorch3D/data/cow_mesh/cow.obj"
         self.default_mesh_path = "/home/borisef/projects/pytorch3D/data/bixler/bixler.obj"
         self.default_camera_matrix = [[1000, 0, 400], [0, 1000, 300], [0, 0, 1]]
@@ -39,6 +38,7 @@ class MeshProjectionGUI:
         # Default increments
         self.default_tvec_increment = 1
         self.default_rvec_increment = 0.05
+        self.default_rvec_update = 'target'
 
         # Variables
         self.image = None
@@ -49,6 +49,7 @@ class MeshProjectionGUI:
         self.interact_mode = tk.StringVar(value="tvec")  # Initialize interact_mode here
         self.tvec_increment = tk.DoubleVar(value=self.default_tvec_increment)
         self.rvec_increment = tk.DoubleVar(value=self.default_rvec_increment)
+        self.rvec_update = tk.StringVar(value = self.default_rvec_update)
 
         # Variables for mouse dragging
         self.mouse_dragging = False
@@ -152,6 +153,14 @@ class MeshProjectionGUI:
         tk.Button(self.root, text="Record", command=self.record_current_state).grid(row=7, column=0, pady=10)
         tk.Button(self.root, text="Undo", command=self.undo_last_change).grid(row=7, column=1, pady=10)
 
+        tk.Label(self.root, text="RVEC Update").grid(row=7, column=1, sticky="e")
+        rvec_update_choices = ["simple", "camera", "target"]
+        self.rvec_update_combobox = tk.OptionMenu(self.root, self.rvec_update, *rvec_update_choices)
+        self.rvec_update_combobox.grid(row=7, column=2, sticky="w")
+        self.rvec_update_combobox.bind("<Configure>", self.update_key_bindings)
+
+
+
     def record_current_state(self):
         # Store the current values of tvec, rvec, and camera matrix
         state = {
@@ -209,23 +218,23 @@ class MeshProjectionGUI:
         rvec_increment_value = self.rvec_increment.get()
 
         if self.interact_mode.get() == "tvec":
-            self.root.bind("<Left>", lambda event: self.update_vector(self.tvec, 0, -tvec_increment_value))
-            self.root.bind("<Right>", lambda event: self.update_vector(self.tvec, 0, tvec_increment_value))
+            self.root.bind("<Left>", lambda event: self.update_vector(self.tvec, 0, -tvec_increment_value,True))
+            self.root.bind("<Right>", lambda event: self.update_vector(self.tvec, 0, tvec_increment_value,True))
             self.root.bind("<Up>", lambda event: self.update_vector(self.tvec, 1, -tvec_increment_value))
             self.root.bind("<Down>", lambda event: self.update_vector(self.tvec, 1, tvec_increment_value))
-            self.root.bind("<minus>", lambda event: self.update_vector(self.tvec, 2, -tvec_increment_value))
+            self.root.bind("<minus>", lambda event: self.update_vector(self.tvec, 2, -tvec_increment_value,True))
             self.root.bind("<plus>", lambda event: self.update_vector(self.tvec, 2, tvec_increment_value))
-            self.root.bind("<KP_Subtract>", lambda event: self.update_vector(self.tvec, 2, -tvec_increment_value))
+            self.root.bind("<KP_Subtract>", lambda event: self.update_vector(self.tvec, 2, -tvec_increment_value,True))
             self.root.bind("<KP_Add>", lambda event: self.update_vector(self.tvec, 2, tvec_increment_value))
         else:
-            self.root.bind("<Left>", lambda event: self.update_vector(self.rvec, 0, -rvec_increment_value))
-            self.root.bind("<Right>", lambda event: self.update_vector(self.rvec, 0, rvec_increment_value))
-            self.root.bind("<Up>", lambda event: self.update_vector(self.rvec, 1, -rvec_increment_value))
-            self.root.bind("<Down>", lambda event: self.update_vector(self.rvec, 1, rvec_increment_value))
-            self.root.bind("<minus>", lambda event: self.update_vector(self.rvec, 2, -rvec_increment_value))
-            self.root.bind("<plus>", lambda event: self.update_vector(self.rvec, 2, rvec_increment_value))
-            self.root.bind("<KP_Subtract>", lambda event: self.update_vector(self.rvec, 2, -rvec_increment_value))
-            self.root.bind("<KP_Add>", lambda event: self.update_vector(self.rvec, 2, rvec_increment_value))
+            self.root.bind("<Left>", lambda event: self.update_vector_rvec(self.rvec, 0, -rvec_increment_value,True))
+            self.root.bind("<Right>", lambda event: self.update_vector_rvec(self.rvec, 0, rvec_increment_value,True))
+            self.root.bind("<Up>", lambda event: self.update_vector_rvec(self.rvec, 1, -rvec_increment_value))
+            self.root.bind("<Down>", lambda event: self.update_vector_rvec(self.rvec, 1, rvec_increment_value))
+            self.root.bind("<minus>", lambda event: self.update_vector_rvec(self.rvec, 2, -rvec_increment_value,True))
+            self.root.bind("<plus>", lambda event: self.update_vector_rvec(self.rvec, 2, rvec_increment_value))
+            self.root.bind("<KP_Subtract>", lambda event: self.update_vector_rvec(self.rvec, 2, -rvec_increment_value,True))
+            self.root.bind("<KP_Add>", lambda event: self.update_vector_rvec(self.rvec, 2, rvec_increment_value))
 
 
     def on_mouse_press1(self, event):
@@ -351,12 +360,23 @@ class MeshProjectionGUI:
             d = max(int(self.mesh.vertices.shape[0]/MAX_VERTICES),1)
             self.mesh.vertices = self.mesh.vertices[::d,:]
 
-    def update_vector(self, vector, index, delta):
-        vector[index] += delta
-        self.update_entries()
-        self.render_projection()
+    def update_vector(self, vector, index, delta, check_focus = False):
+        if(check_focus):
+            if isinstance(root.focus_get(), tk.Entry):
+                return  # Let the Entry handle the key event itself
 
-    def update_vector_rvec(self, rvec, index, delta,method = "target"):
+        if(self.interact_mode.get() == "rvec"):
+            self.update_vector_rvec(vector, index, delta)
+        else:
+            vector[index] += delta
+            self.update_entries()
+            self.render_projection()
+
+    def update_vector_rvec(self, rvec, index, delta,check_focus = False):
+        if (check_focus):
+            if isinstance(root.focus_get(), tk.Entry):
+                return  # Let the Entry handle the key event itself
+        method = self.rvec_update.get()
         #"simple" - increment index
         #"camera" - rotate twice new(old)
         #"target" - rotate twice old(new)
