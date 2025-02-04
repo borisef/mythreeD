@@ -18,6 +18,99 @@ from skimage.draw import ellipse
 
 from matplotlib.patches import Ellipse
 
+def fit_ellipse_to_contour(segmentation):
+    from skimage.measure import find_contours
+    import cv2
+
+    contours = find_contours(segmentation, level=0.5)
+    if not contours:
+        raise ValueError("No contours found in segmentation.")
+
+    # Select the largest contour (by number of points)
+    largest_contour = max(contours, key=len)
+
+    # Convert contour to the format required by OpenCV
+    contour_points = np.array([(y, x) for x, y in largest_contour], dtype=np.float32)  # Swap x, y
+    contour_points = contour_points.reshape(-1, 1, 2)  # OpenCV requires (N, 1, 2) shape
+
+    if len(contour_points) < 5:
+        raise ValueError("Not enough points to fit an ellipse.")
+
+    # Fit ellipse using OpenCV
+    ellipse = cv2.fitEllipse(contour_points)
+
+    # Extract ellipse parameters
+    (xc, yc), (major_axis, minor_axis), angle = ellipse
+
+    # Fix the orientation
+    corrected_angle = 90 - angle  # Convert OpenCV angle to Matplotlib's convention
+
+    return {
+        "center": (xc, yc),
+        "axes": (major_axis, minor_axis),
+        "angle": corrected_angle
+    }
+
+from matplotlib.patches import Ellipse
+
+def visualize_with_ellipse_center(segmentation, results, fitted_ellipse):
+    closed_segmentation = results["closed_segmentation"]
+    bbox = results["bounding_box"]
+    ellipse = fitted_ellipse  # Fitted ellipse from OpenCV
+    com = results["center_of_mass"]
+    max_distance_point = results["max_distance_point"]
+
+    # Extract ellipse parameters
+    ellipse_center = ellipse["center"]
+    ellipse_axes = (ellipse["axes"][1] / 2, ellipse["axes"][0] / 2)  # Axes (width, height)
+    ellipse_angle = ellipse["angle"]
+
+    # Find contours
+    contours = find_contours(closed_segmentation, level=0.5)
+
+    fig, ax = plt.subplots(1, 2, figsize=(12, 6))
+
+    # Original segmentation
+    ax[0].imshow(segmentation, cmap="gray")
+    ax[0].set_title("Original Segmentation")
+    ax[0].axis("off")
+
+    # Processed segmentation
+    ax[1].imshow(closed_segmentation, cmap="gray")
+    ax[1].set_title("Processed Segmentation")
+    ax[1].axis("off")
+
+    # Add bounding box
+    min_row, min_col, max_row, max_col = bbox
+    rect = Rectangle((min_col, min_row), max_col - min_col, max_row - min_row,
+                     linewidth=2, edgecolor="red", facecolor="none", label="Bounding Box")
+    ax[1].add_patch(rect)
+
+    # Add fitted ellipse
+    ell = Ellipse(xy=ellipse_center, width=2 * ellipse_axes[0], height=2 * ellipse_axes[1],
+                  angle=ellipse_angle, edgecolor="blue", facecolor="none", linewidth=2, label="Fitted Ellipse")
+    ax[1].add_patch(ell)
+
+    # Add ellipse center
+    ax[1].scatter(ellipse_center[0], ellipse_center[1], color="purple", label="Ellipse Center", marker="x", s=100, zorder=3)
+
+    # Add center of mass
+    ax[1].scatter(com[1], com[0], color="yellow", label="Center of Mass", zorder=3)
+
+    # Add max distance point
+    ax[1].scatter(max_distance_point[1], max_distance_point[0], color="green", label="Max Distance Point", zorder=3)
+
+    # Add contours
+    for contour in contours:
+        ax[1].plot(contour[:, 1], contour[:, 0], color="cyan", linewidth=2, label="Contour")
+
+    # Add legend
+    ax[1].legend(loc="upper right")
+
+    plt.tight_layout()
+    plt.show()
+
+
 def visualize_with_max_enclosed_ellipse(segmentation, results, enclosed_ellipse):
     closed_segmentation = results["closed_segmentation"]
     bbox = results["bounding_box"]
@@ -142,7 +235,9 @@ def process_segmentation(segmentation):
         # Fit ellipse using OpenCV (convert contour to required format)
         contour_points = np.array(largest_contour, dtype=np.float32)
         if len(contour_points) >= 5:  # Minimum points needed for fitEllipse
-            ellipse = cv2.fitEllipse(contour_points)
+            #ellipse = cv2.fitEllipse(contour_points)
+            ellipse = fit_ellipse_to_contour(closed_segmentation)
+
         else:
             raise ValueError("Not enough points to fit an ellipse.")
     else:
@@ -182,5 +277,7 @@ if __name__ == "__main__":
     im1 = (im.mean(axis = 2) <150)*1
     res = process_segmentation(im1)
     ee = find_maximum_enclosed_ellipse(im1)
-    visualize_with_max_enclosed_ellipse(im1,res,ee)
+    #visualize_with_max_enclosed_ellipse(im1,res,ee)
+    fitted_ellipse = fit_ellipse_to_contour(res["closed_segmentation"])
+    visualize_with_ellipse_center(segmentation, res, fitted_ellipse)
 
